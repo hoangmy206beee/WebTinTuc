@@ -1,71 +1,151 @@
 <?php
-require_once __DIR__ . '/../includes/functions.php';
-$q = trim($_GET['q'] ?? '');
-$page = max(1, intval($_GET['page'] ?? 1));
-$perPage = 12;
-$pageTitle = $q ? 'Tìm kiếm: ' . $q : 'Tìm kiếm';
+session_start();
+require_once 'config/ketnoi.php';
+require_once 'includes/functions.php';
 
-$articles = [];
+$keyword = trim($_GET['q'] ?? '');
+$page = max(1, (int)($_GET['page'] ?? 1));
+$perPage = 6;
+$offset = ($page - 1) * $perPage;
+
+$posts = [];
 $total = 0;
-if ($q) {
-    $total = countArticles(['search' => $q]);
-    $articles = getArticles(['search' => $q], $perPage, ($page - 1) * $perPage);
+$totalPages = 0;
+
+if ($keyword !== '') {
+    $search = '%' . $keyword . '%';
+
+    $stmt = $conn->prepare("
+        SELECT COUNT(*) AS total
+        FROM posts
+        WHERE status = 'published'
+        AND (title LIKE ? OR excerpt LIKE ? OR content LIKE ?)
+    ");
+    $stmt->bind_param("sss", $search, $search, $search);
+    $stmt->execute();
+    $total = $stmt->get_result()->fetch_assoc()['total'];
+    $stmt->close();
+
+    $totalPages = ceil($total / $perPage);
+
+    $stmt = $conn->prepare("
+        SELECT p.*, c.name AS ten_danhmuc
+        FROM posts p
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.status = 'published'
+        AND (p.title LIKE ? OR p.excerpt LIKE ? OR p.content LIKE ?)
+        ORDER BY p.created_at DESC
+        LIMIT ? OFFSET ?
+    ");
+    $stmt->bind_param("sssii", $search, $search, $search, $perPage, $offset);
+    $stmt->execute();
+    $posts = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
 }
 
-require_once 'includes/header.php';
+$conn->close();
 ?>
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tìm kiếm - TinNhanh</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
-<div class="search-hero">
-  <div class="container">
-    <h2 style="text-align:center;font-size:22px;font-weight:800;margin-bottom:16px;color:var(--secondary)"><i class="fas fa-search"></i> Tìm kiếm tin tức</h2>
-    <form class="search-big" action="" method="GET">
-      <input type="text" name="q" value="<?= e($q) ?>" placeholder="Nhập từ khóa tìm kiếm..." autofocus>
-      <button type="submit"><i class="fas fa-search"></i></button>
+<header class="site-header">
+  <div class="site-header-inner">
+    <a href="index.php" class="site-logo">Tin<span>Nhanh</span></a>
+
+    <form action="timkiem.php" method="GET" class="search-form">
+      <input type="text" name="q" placeholder="Tìm kiếm bài viết..."
+             value="<?= clean($keyword) ?>">
+      <button type="submit">Tìm</button>
     </form>
-    <?php if ($q): ?>
-      <p style="text-align:center;margin-top:12px;font-size:14px;color:var(--text-mid)">
-        Tìm thấy <strong><?= $total ?></strong> kết quả cho "<strong><?= e($q) ?></strong>"
-      </p>
-    <?php endif; ?>
   </div>
-</div>
+</header>
 
-<div class="container layout-full">
-  <?php if ($q && !empty($articles)): ?>
-    <div class="section-header" style="margin-top:24px">
-      <h2 class="section-title">Kết quả tìm kiếm</h2>
-    </div>
-    <div class="card-grid" style="margin-bottom:24px">
-      <?php foreach ($articles as $art):
-        $img = $art['thumbnail'] ? UPLOAD_URL . $art['thumbnail'] : 'https://via.placeholder.com/400x225?text=No+Image';
-      ?>
-      <article class="article-card">
-        <a href="<?= SITE_URL ?>/public/article.php?slug=<?= e($art['slug']) ?>" class="card-thumbnail">
-          <img src="<?= e($img) ?>" alt="<?= e($art['title']) ?>" loading="lazy">
-          <span class="cat-badge" style="background:<?= e($art['category_color']) ?>"><?= e($art['category_name']) ?></span>
-        </a>
-        <div class="card-body">
-          <a href="<?= SITE_URL ?>/public/article.php?slug=<?= e($art['slug']) ?>">
-            <h3 class="card-title"><?= e($art['title']) ?></h3>
+<main class="article-wrap" style="display:block">
+
+  <h1 class="article-title">Tìm kiếm bài viết</h1>
+
+  <form action="timkiem.php" method="GET" class="search-page-form">
+    <input type="text" name="q" placeholder="Nhập từ khóa..."
+           value="<?= clean($keyword) ?>">
+    <button type="submit" class="btn btn-primary">Tìm kiếm</button>
+  </form>
+
+  <?php if ($keyword !== ''): ?>
+    <p style="margin:16px 0;color:var(--text-muted)">
+      Tìm thấy <strong><?= $total ?></strong> kết quả cho từ khóa:
+      <strong><?= clean($keyword) ?></strong>
+    </p>
+
+    <?php if (!empty($posts)): ?>
+      <div class="card-grid-search">
+        <?php foreach ($posts as $post): ?>
+          <article class="article-card">
+            <div class="card-thumb">
+              <?php if (!empty($post['thumbnail'])): ?>
+                <img src="uploads/posts/<?= clean($post['thumbnail']) ?>"
+                     alt="<?= clean($post['title']) ?>">
+              <?php else: ?>
+                <div class="article-img-placeholder">Không có ảnh</div>
+              <?php endif; ?>
+            </div>
+
+            <div class="card-body">
+              <span class="article-category-badge">
+                <?= clean($post['ten_danhmuc'] ?? 'Tin tức') ?>
+              </span>
+
+              <h2>
+                <a href="baiviet.php?id=<?= $post['id'] ?>">
+                  <?= clean($post['title']) ?>
+                </a>
+              </h2>
+
+              <p><?= clean($post['excerpt']) ?></p>
+
+              <small>
+                <?= formatDate($post['created_at']) ?> |
+                <?= formatViews($post['views']) ?> lượt xem
+              </small>
+            </div>
+          </article>
+        <?php endforeach; ?>
+      </div>
+
+      <div class="pagination">
+        <?php if ($page > 1): ?>
+          <a href="timkiem.php?q=<?= urlencode($keyword) ?>&page=<?= $page - 1 ?>"
+             class="btn btn-outline">Trang trước</a>
+        <?php endif; ?>
+
+        <?php for ($i = 1; $i <= $totalPages; $i++): ?>
+          <a href="timkiem.php?q=<?= urlencode($keyword) ?>&page=<?= $i ?>"
+             class="btn <?= $i == $page ? 'btn-primary' : 'btn-ghost' ?>">
+            <?= $i ?>
           </a>
-          <p class="card-excerpt"><?= e($art['excerpt']) ?></p>
-          <div class="card-meta">
-            <span><i class="fas fa-clock"></i> <?= timeAgo($art['published_at']) ?></span>
-            <span class="card-views"><i class="fas fa-eye"></i> <?= number_format($art['views']) ?></span>
-          </div>
-        </div>
-      </article>
-      <?php endforeach; ?>
-    </div>
-    <?= paginate($total, $perPage, $page, SITE_URL . '/public/search.php?q=' . urlencode($q)) ?>
+        <?php endfor; ?>
 
-  <?php elseif ($q): ?>
-    <div class="empty-state" style="margin-top:24px">
-      <i class="fas fa-search"></i>
-      <h3>Không tìm thấy kết quả</h3>
-      <p>Không có bài viết nào phù hợp với "<strong><?= e($q) ?></strong>". Thử từ khóa khác.</p>
-    </div>
+        <?php if ($page < $totalPages): ?>
+          <a href="timkiem.php?q=<?= urlencode($keyword) ?>&page=<?= $page + 1 ?>"
+             class="btn btn-outline">Trang sau</a>
+        <?php endif; ?>
+      </div>
+
+    <?php else: ?>
+      <p>Không tìm thấy bài viết nào phù hợp.</p>
+    <?php endif; ?>
+
+  <?php else: ?>
+    <p>Nhập từ khóa để tìm kiếm bài viết.</p>
   <?php endif; ?>
-</div>
 
-<?php require_once 'includes/footer.php'; ?>
+</main>
+
+</body>
+</html>
