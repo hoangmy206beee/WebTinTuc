@@ -115,7 +115,7 @@ $conn->close();
     <div class="article-body">
       <?= $bv['content'] ?>
     </div>
-
+    <?php include 'binhluan.php';?> 
   </main>
 
   <!-- ===== SIDEBAR ===== -->
